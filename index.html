@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>জেমিনি-অনুপ্রাণিত চ্যাট অ্যাপ</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Marked (Markdown Parser) CDN for rich text rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Tailwind Configuration -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'gemini-blue': '#4285f4',
+                        'gemini-dark': '#1e1e1e',
+                        'gemini-light-dark': '#282828',
+                        'gemini-text': '#e0e0e0',
+                        'gemini-subtle': '#888888',
+                        'save-color': '#059669', /* Emerald 600 */
+                        'load-color': '#4f46e5', /* Indigo 600 */
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Ensuring full screen height and dark background */
+        html, body, #app {
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        /* Custom scrollbar style for chat window */
+        .chat-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        .chat-container::-webkit-scrollbar-thumb {
+            background-color: #4a4a4a;
+            border-radius: 4px;
+        }
+        .chat-container::-webkit-scrollbar-track {
+            background: #1e1e1e;
+        }
+
+        /* Styling for rendered markdown content (AI response) */
+        .markdown-body {
+            color: var(--tw-color-gemini-text);
+            line-height: 1.6;
+        }
+        .markdown-body pre {
+            background-color: #333;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+            margin: 1rem 0;
+            font-size: 0.9em;
+        }
+        .markdown-body code {
+            /* Inline code styling */
+            background-color: #333;
+            padding: 0.1em 0.3em;
+            border-radius: 4px;
+        }
+        .markdown-body blockquote {
+            border-left: 4px solid #4285f4;
+            padding-left: 1rem;
+            margin: 1rem 0;
+            opacity: 0.8;
+        }
+        .markdown-body h1, .markdown-body h2, .markdown-body h3 {
+            font-weight: 600;
+            margin-top: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        /* --- Input Area Styling Update --- */
+        /* Increased padding for prompt input to accommodate THREE icons on the right (Send + Image + File) */
+        #prompt-input {
+            padding-right: 9rem; /* Increased space for three floating icons */
+            padding-left: 1rem; 
+        }
+
+        /* Enhanced Button Styling for Premium Look */
+        .action-button {
+            @apply w-full py-3 px-4 rounded-xl text-left text-sm flex items-center transition duration-300 justify-center font-semibold shadow-lg hover:shadow-xl;
+        }
+        .save-button-style {
+            @apply bg-save-color text-white hover:bg-emerald-700;
+        }
+        .load-button-style {
+            @apply bg-load-color text-white hover:bg-indigo-700;
+        }
+
+        /* --- Dynamic Sidebar Logic for ALL Screens --- */
+        #sidebar {
+            /* Default hidden state for all screens */
+            position: absolute;
+            z-index: 50; /* Ensure it floats over the chat area */
+            transform: translateX(-100%);
+            transition: transform 0.3s ease-in-out;
+            width: 256px; /* 64 units in Tailwind */
+            height: 100%; /* Full height */
+            display: flex; /* Always display flex so content is arranged vertically */
+            flex-direction: column;
+        }
+        #sidebar.open {
+            transform: translateX(0); /* Slides into view */
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5); /* Add shadow when open */
+        }
+        
+        /* Chat Header should be fixed at the top of the main container */
+        .chat-header {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+        }
+    </style>
+</head>
+<body class="bg-gemini-dark text-gemini-text font-sans">
+
+    <div id="app" class="flex h-full w-full">
+        <!-- Sidebar (Now dynamic on all screens) -->
+        <div id="sidebar" class="bg-gemini-light-dark p-4 justify-between border-r border-gray-700">
+            <div>
+                <!-- App Title/Logo -->
+                <div class="text-2xl font-extrabold text-white mb-8 flex items-center">
+                    <span class="text-gemini-blue mr-1">Nexa</span><span class="text-white"> AI</span>
+                </div>
+                <!-- New Chat Button -->
+                <button onclick="newChat()" class="action-button bg-gray-700 hover:bg-gray-600 mb-4 font-normal">
+                    <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                    নতুন চ্যাট শুরু করুন
+                </button>
+                
+                <!-- Save/Load Buttons (Premium Icons) -->
+                <div class="space-y-2 border-t border-gray-700 pt-4">
+                    <button id="save-chat-btn" onclick="saveChatHistory()" class="action-button save-button-style">
+                        <!-- Cloud Upload Icon -->
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                        চ্যাট সেভ করুন
+                    </button>
+                    <button id="load-chat-btn" onclick="loadChatHistory()" class="action-button load-button-style">
+                         <!-- Archive/Folder Icon -->
+                         <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg>
+                        পূর্বের চ্যাট লোড
+                    </button>
+                    <!-- Status Message for Firebase actions -->
+                    <p id="firestore-status" class="text-xs text-center text-gemini-subtle h-5"></p>
+                </div>
+
+                <!-- Placeholder for history -->
+                <div class="mt-8 text-sm text-gemini-subtle">
+                    <p class="mb-2">পূর্বের কথোপকথন (মেমোরি):</p>
+                    <ul class="space-y-1" id="history-list">
+                        <li class="p-2 rounded-lg bg-gray-700 text-white cursor-pointer hover:bg-gray-600">স্বাগতম বার্তা</li>
+                    </ul>
+                </div>
+            </div>
+            <!-- User ID Display -->
+            <p id="userIdDisplay" class="text-xs text-gemini-subtle"></p>
+        </div>
+
+        <!-- Main Chat Area -->
+        <div class="flex-1 flex flex-col h-full relative">
+            <!-- Chat Header (Now always includes the Toggle Button) -->
+            <div class="chat-header p-4 border-b border-gray-700 bg-gemini-light-dark flex items-center">
+                <!-- Hamburger Button (Always visible) -->
+                <button id="sidebar-toggle" onclick="toggleSidebar()" class="mr-3 p-1 rounded hover:bg-gray-700 transition duration-200">
+                    <!-- Three Lines Icon -->
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                </button>
+                
+                <div class="text-xl font-bold text-white">
+                    <span class="text-gemini-blue mr-1">Nexa</span><span class="text-white"> AI</span>
+                </div>
+            </div>
+
+            <!-- Messages Container -->
+            <div id="chat-container" class="flex-1 overflow-y-auto chat-container p-4 md:p-8 space-y-8">
+                <!-- Chat messages will be appended here -->
+                <div class="flex flex-col items-start max-w-3xl mx-auto">
+                    <div class="p-4 rounded-xl bg-gemini-light-dark shadow-lg">
+                        <h2 class="text-xl font-semibold mb-2 text-white">Nexa AI</h2>
+                        <p class="text-sm text-gemini-text">আপনি কেমন আছেন? আপনি বাংলায় যেকোনো প্রশ্ন করতে পারেন।</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Loading Indicator (Hidden by default) -->
+            <div id="loading-indicator" class="hidden p-4 flex justify-center">
+                <div class="flex items-center space-x-2 text-gemini-blue">
+                    <div class="w-3 h-3 bg-gemini-blue rounded-full animate-pulse"></div>
+                    <div class="w-3 h-3 bg-gemini-blue rounded-full animate-pulse delay-100"></div>
+                    <div class="w-3 h-3 bg-gemini-blue rounded-full animate-pulse delay-200"></div>
+                    <span class="text-sm">উত্তর তৈরি হচ্ছে...</span>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="p-4 md:p-8 border-t border-gray-700 bg-gemini-dark sticky bottom-0">
+                <div class="max-w-3xl mx-auto">
+                    
+                    <!-- Image Preview and Clear Button -->
+                    <div id="image-preview-container" class="hidden relative mb-2 p-2 bg-gemini-light-dark border border-gray-700 rounded-xl">
+                        <img id="image-preview" class="max-h-24 max-w-full rounded-lg object-contain mx-auto" src="" alt="Image Preview">
+                        <button onclick="clearImage()" class="absolute top-0 right-0 m-1 p-1 bg-red-600 text-white rounded-full hover:bg-red-700 transition duration-200">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        </button>
+                    </div>
+
+                    <div id="input-wrapper" class="relative flex items-end">
+                        
+                        <!-- Textarea (Now with increased right padding) -->
+                        <textarea id="prompt-input" rows="1" class="w-full resize-none p-4 pr-36 text-gemini-text bg-gemini-light-dark border border-gray-700 rounded-3xl focus:ring-2 focus:ring-gemini-blue focus:outline-none transition duration-200" placeholder="এখানে আপনার প্রশ্ন বা বার্তা লিখুন..." onkeypress="handleKeyPress(event)"></textarea>
+                        
+                        <!-- 1. File Upload Button (Folder Icon) -->
+                        <label for="file-upload" class="absolute right-[82px] bottom-2 p-3 text-gemini-subtle hover:text-gemini-blue cursor-pointer transition duration-200" title="ফাইল আপলোড করুন">
+                            <!-- Folder with Up Arrow Icon -->
+                            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 6.63 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>
+                                <path d="M12 13v7"/>
+                                <path d="m9 16 3-3 3 3"/>
+                            </svg>
+                        </label>
+                        <!-- NOTE: This input accepts ALL files, but only the first image in the chatHistory array is used for Gemini's multimodal capabilities -->
+                        <input type="file" id="file-upload" class="hidden" onchange="handleFileUpload(event)">
+
+
+                        <!-- 2. Image Upload Button (Photo/Image Icon) -->
+                        <label for="image-upload" class="absolute right-12 bottom-2 p-3 text-gemini-subtle hover:text-gemini-blue cursor-pointer transition duration-200" title="ছবি আপলোড করুন">
+                            <!-- Modern Photo Icon (Lucide-style) -->
+                            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
+                                <circle cx="9" cy="9" r="2"/>
+                                <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+                            </svg>
+                        </label>
+                        <input type="file" id="image-upload" accept="image/*" class="hidden" onchange="handleImageUpload(event)">
+                        
+                        <!-- 3. Send Button (Paper Plane Icon) -->
+                        <button id="send-button" onclick="sendMessage()" class="absolute right-2 bottom-2 p-3 bg-gemini-blue text-white rounded-full hover:bg-blue-600 transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed" title="পাঠান">
+                            <!-- Modern Send/Paper Plane Icon (Lucide-style) -->
+                            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="m22 2-7 20-4-9-9-4 20-7Z"/>
+                                <path d="M11 11 22 2"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <p class="text-xs text-gemini-subtle mt-2 text-center">AI উত্তর দেওয়ার ক্ষেত্রে ভুল করতে পারে। গুরুত্বপূর্ণ তথ্যের জন্য ক্রস-চেক করুন।</p>
+                </div>
+            </div>
+            
+            <!-- Overlay for when sidebar is open (used on all screens now) -->
+            <div id="sidebar-overlay" class="fixed inset-0 bg-black opacity-50 z-40 hidden" onclick="toggleSidebar()"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        // --- Firebase Setup Boilerplate (Required for Immersive Environment) ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            doc, 
+            setDoc, 
+            getDoc 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        setLogLevel('Debug');
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+
+        let app, db, auth, userId;
+        let isAuthReady = false;
+        
+        // Firestore constants
+        const CHAT_COLLECTION_NAME = 'chat_sessions';
+        const CHAT_DOCUMENT_ID = 'current_session';
+
+        // Function to construct the private document path
+        function getChatDocRef() {
+            if (!db || !userId) return null;
+            return doc(db, `artifacts/${appId}/users/${userId}/${CHAT_COLLECTION_NAME}/${CHAT_DOCUMENT_ID}`);
+        }
+
+        async function setupFirebase() {
+            try {
+                if (Object.keys(firebaseConfig).length === 0) {
+                    console.error("Firebase config is empty. Cannot initialize.");
+                    return;
+                }
+                
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                userId = auth.currentUser?.uid || crypto.randomUUID();
+                console.log("Firebase initialized and authenticated. User ID:", userId);
+                document.getElementById('userIdDisplay').textContent = `ইউজার ID: ${userId.substring(0, 8)}...`;
+                isAuthReady = true;
+
+                // Attempt to load the last chat session upon successful authentication
+                loadChatHistory();
+
+            } catch (error) {
+                console.error("Error setting up Firebase:", error);
+            }
+        }
+
+        setupFirebase();
+        // --- End of Firebase Setup ---
+
+        // --- Core Chat and Gemini Logic ---
+        const API_KEY = "AIzaSyDS9UqrSEwlgRf0IL55NxOee6O8ll9nOB8"; // আপনার Gemini API কী এখানে প্রবেশ করান
+        const CHAT_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent";
+        const TTS_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent";
+        const TTS_VOICE = "Kore"; // টেক্সট-টু-স্পিচের জন্য একটি পরিষ্কার, সাধারণ ভয়েস
+
+        const chatContainer = document.getElementById('chat-container');
+        const promptInput = document.getElementById('prompt-input');
+        const sendButton = document.getElementById('send-button');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const inputWrapper = document.getElementById('input-wrapper');
+        const firestoreStatus = document.getElementById('firestore-status');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+
+        let chatHistory = [];
+        let base64Image = null; // Stores Base64 string of the uploaded image
+        let imageMimeType = null; // Stores MIME type of the uploaded image
+        
+        // --- Sidebar Toggle Logic (Works on ALL screens now) ---
+        window.toggleSidebar = function() {
+            // Toggles the 'open' class for translation effect
+            sidebar.classList.toggle('open');
+            // Toggles the 'hidden' class for the overlay (which hides the chat content when sidebar is open)
+            sidebarOverlay.classList.toggle('hidden');
+        };
+
+        // --- Firestore Chat History Functions ---
+
+        function updateStatus(message, isError = false) {
+            firestoreStatus.textContent = message;
+            firestoreStatus.className = `text-xs text-center h-5 mt-1 transition-colors ${isError ? 'text-red-400' : 'text-green-400'}`;
+            setTimeout(() => {
+                firestoreStatus.textContent = '';
+                firestoreStatus.className = 'text-xs text-center text-gemini-subtle h-5';
+            }, 3000);
+        }
+
+        // Function to save current chat history to Firestore
+        window.saveChatHistory = async function() {
+            if (!isAuthReady || chatHistory.length === 0) {
+                updateStatus("কোনো কথোপকথন সেভ করার জন্য নেই।", true);
+                return;
+            }
+
+            const docRef = getChatDocRef();
+            if (!docRef) return;
+
+            try {
+                // We use JSON.stringify to safely store the complex array structure in Firestore
+                await setDoc(docRef, {
+                    history: JSON.stringify(chatHistory),
+                    timestamp: new Date().toISOString(),
+                    preview: chatHistory[chatHistory.length - 1].parts[0].text.substring(0, 50) + '...'
+                });
+                updateStatus("চ্যাট সফলভাবে সেভ করা হয়েছে!");
+                console.log("Chat history saved successfully.");
+            } catch (error) {
+                updateStatus("চ্যাট সেভ করতে সমস্যা হয়েছে।", true);
+                console.error("Error saving chat history:", error);
+            }
+        };
+
+        // Function to load the last chat history from Firestore
+        window.loadChatHistory = async function() {
+            if (!isAuthReady) {
+                 // Do not show an error if not ready, just wait for setupFirebase to call it again
+                return;
+            }
+            
+            const docRef = getChatDocRef();
+            if (!docRef) return;
+
+            try {
+                const docSnap = await getDoc(docRef);
+
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    
+                    // We must use JSON.parse to reconstruct the complex array
+                    const loadedHistory = JSON.parse(data.history);
+                    
+                    if (loadedHistory && loadedHistory.length > 0) {
+                        chatHistory = loadedHistory;
+                        rebuildChatUI(); // Function to redraw messages from history array
+                        updateStatus("পূর্বের চ্যাট লোড করা হয়েছে।");
+                    } else {
+                        updateStatus("পূর্বের কোনো সেভ করা চ্যাট পাওয়া যায়নি।", true);
+                    }
+                } else {
+                    updateStatus("সেভ করা কোনো চ্যাট সেশন নেই।", true);
+                    console.log("No saved chat session found.");
+                }
+            } catch (error) {
+                updateStatus("চ্যাট লোড করতে সমস্যা হয়েছে।", true);
+                console.error("Error loading chat history:", error);
+            }
+        };
+
+        // Function to clear and redraw the chat UI based on chatHistory array
+        function rebuildChatUI() {
+            chatContainer.innerHTML = '';
+            // Add initial welcome message back
+            chatContainer.innerHTML = `
+                <div class="flex flex-col items-start max-w-3xl mx-auto">
+                    <div class="p-4 rounded-xl bg-gemini-light-dark shadow-lg">
+                        <h2 class="text-xl font-semibold mb-2 text-white">Nexa AI</h2>
+                        <p class="text-sm text-gemini-text">আপনি কেমন আছেন? আপনি বাংলায় যেকোনো প্রশ্ন করতে পারেন।</p>
+                    </div>
+                </div>
+            `;
+            
+            chatHistory.forEach(message => {
+                const textPart = message.parts.find(p => p.text)?.text || '';
+                const imagePart = message.parts.find(p => p.inlineData)?.inlineData;
+
+                if (message.role === 'user') {
+                    const imageSrc = imagePart ? `data:${imagePart.mimeType};base64,${imagePart.data}` : null;
+                    appendUserMessage(textPart, imageSrc, false); // Don't scroll on every message during rebuild
+                } else if (message.role === 'model') {
+                    appendAIMessage(textPart, false); // Don't scroll on every message during rebuild
+                }
+            });
+            // Scroll to the bottom once after loading everything
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // --- TTS Utility Functions (PCM to WAV conversion) ---
+        
+        // Base64 স্ট্রিংকে ArrayBuffer-এ রূপান্তর করুন
+        function base64ToArrayBuffer(base64) {
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        // DataView-এ স্ট্রিং লিখুন
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        // PCM অডিও ডেটা (Int16Array) থেকে একটি WAV Blob তৈরি করুন
+        function pcmToWav(pcm16, sampleRate) {
+            const numChannels = 1;
+            const bitsPerSample = 16;
+            const bytesPerSample = bitsPerSample / 8;
+            const blockAlign = numChannels * bytesPerSample;
+            const byteRate = sampleRate * blockAlign;
+
+            // WAV হেডার সাইজ (44 বাইট) + ডেটার সাইজ
+            const buffer = new ArrayBuffer(44 + pcm16.length * bytesPerSample);
+            const view = new DataView(buffer);
+            let offset = 0;
+
+            // RIFF identifier
+            writeString(view, offset, 'RIFF'); offset += 4;
+            // file length
+            view.setUint32(offset, 36 + pcm16.length * bytesPerSample, true); offset += 4;
+            // 'WAVE' format
+            writeString(view, offset, 'WAVE'); offset += 4;
+
+            // 'fmt ' sub-chunk
+            writeString(view, offset, 'fmt '); offset += 4;
+            // Sub-chunk size (16 for PCM)
+            view.setUint32(offset, 16, true); offset += 4;
+            // Audio format (1 for PCM)
+            view.setUint16(offset, 1, true); offset += 2;
+            // Number of channels
+            view.setUint16(offset, numChannels, true); offset += 2;
+            // Sample rate
+            view.setUint32(offset, sampleRate, true); offset += 4;
+            // Byte rate
+            view.setUint32(offset, byteRate, true); offset += 4;
+            // Block align
+            view.setUint16(offset, blockAlign, true); offset += 2;
+            // Bits per sample
+            view.setUint16(offset, bitsPerSample, true); offset += 2;
+
+            // 'data' sub-chunk
+            writeString(view, offset, 'data'); offset += 4;
+            // Data size
+            view.setUint32(offset, pcm16.length * bytesPerSample, true); offset += 4;
+
+            // Write PCM data
+            for (let i = 0; i < pcm16.length; i++) {
+                view.setInt16(offset, pcm16[i], true);
+                offset += bytesPerSample;
+            }
+
+            return new Blob([view], { type: 'audio/wav' });
+        }
+
+        // --- TTS Playback Logic ---
+
+        window.playAudio = async function(rawText, buttonElement) {
+            // Remove markdown syntax for cleaner speech output
+            const textToSpeak = rawText.replace(/```.*?```/gs, '').replace(/([_*#`])|(\[[^\]]*\]\([^)]*\))/g, '', '').trim(); 
+            
+            if (API_KEY === "") {
+                appendAIMessage("TTS এর জন্য API কী অনুপস্থিত।");
+                return;
+            }
+
+            if (!textToSpeak) return;
+
+            // Disable button and show loading state
+            buttonElement.disabled = true;
+            const originalContent = buttonElement.innerHTML;
+            // Loading Spinner Icon
+            buttonElement.innerHTML = `<svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.836 1.582A8 8 0 1012 20a8 8 0 008-8h-2a6 6 0 01-6 6z"></path></svg>`;
+
+            const ttsPayload = {
+                contents: [{
+                    parts: [{ text: `Say this in a clear, measured voice in Bengali: ${textToSpeak}` }]
+                }],
+                generationConfig: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: TTS_VOICE }
+                        }
+                    }
+                },
+                model: "gemini-2.5-flash-preview-tts"
+            };
+
+            try {
+                const response = await fetch(`${TTS_API_URL}?key=${API_KEY}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(ttsPayload)
+                });
+
+                    if (!response.ok) {
+                        const errorBody = await response.json();
+                        throw new Error(`TTS API Error: ${response.status} - ${errorBody.error?.message || 'Unknown error'}`);
+                    }
+                
+                const result = await response.json();
+                const part = result?.candidates?.[0]?.content?.parts?.[0];
+                const audioData = part?.inlineData?.data;
+                const mimeType = part?.inlineData?.mimeType; // e.g., audio/L16;rate=24000
+
+                if (audioData && mimeType && mimeType.startsWith("audio/L16")) {
+                    const rateMatch = mimeType.match(/rate=(\d+)/);
+                    if (!rateMatch) throw new Error("Could not determine sample rate from MIME type.");
+                    const sampleRate = parseInt(rateMatch[1], 10);
+
+                    const pcmDataBuffer = base64ToArrayBuffer(audioData);
+                    const pcm16 = new Int16Array(pcmDataBuffer);
+                    const wavBlob = pcmToWav(pcm16, sampleRate);
+                    
+                    const audioUrl = URL.createObjectURL(wavBlob);
+                    const audio = new Audio(audioUrl);
+                    
+                    // Change button icon to stop/pause while playing
+                    buttonElement.innerHTML = `<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M6 6h12v12H6z"/></svg>`; // Stop Icon
+
+                    audio.play();
+                    
+                    audio.onended = () => {
+                        // Re-enable button after playback
+                        buttonElement.innerHTML = originalContent;
+                        buttonElement.disabled = false;
+                        URL.revokeObjectURL(audioUrl);
+                    };
+
+                } else {
+                    throw new Error("Invalid or missing audio data in TTS response.");
+                }
+
+            } catch (error) {
+                console.error("TTS Playback Error:", error);
+                // Show error icon temporarily
+                buttonElement.innerHTML = `<svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>`;
+                setTimeout(() => {
+                    buttonElement.innerHTML = originalContent;
+                    buttonElement.disabled = false;
+                }, 2000);
+            }
+        };
+
+        // --- Image/File/Chat Logic ---
+        
+        // Function to handle ALL file uploads (image and non-image)
+        // For Gemini, we only store the first image for multimodal context.
+        window.handleFileUpload = function(event) {
+            const file = event.target.files[0];
+            if (!file) {
+                // If the user cancels the file dialog, nothing happens to image state.
+                return;
+            }
+
+            // Since Gemini only natively supports image inputs for multimodal chat:
+            if (!file.type.startsWith('image/')) {
+                 // For now, if a non-image is uploaded, we just alert the user (using a custom box)
+                 // that only images are supported for analysis.
+                 // In a real app, you might upload this file to cloud storage (like Firebase Storage)
+                 // and provide a link to the model, but we skip that complexity here.
+                 alertNotImage(file.name);
+                 document.getElementById('file-upload').value = ''; // Clear file input
+                 return;
+            }
+            
+            // If it is an image, treat it as a standard image upload
+            handleImageFile(file);
+        };
+
+
+        // Function to handle ONLY image file selection (from image-upload button)
+        window.handleImageUpload = function(event) {
+            const file = event.target.files[0];
+            if (!file) {
+                clearImage();
+                return;
+            }
+            handleImageFile(file);
+        }
+
+        // Common logic for processing an image file
+        function handleImageFile(file) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                // Strip the data URL prefix to get the pure Base64 string
+                const base64String = reader.result.split(',')[1];
+                base64Image = base64String;
+                imageMimeType = file.type;
+
+                // Show preview
+                const preview = document.getElementById('image-preview');
+                preview.src = reader.result;
+                document.getElementById('image-preview-container').classList.remove('hidden');
+                
+                // Set the file input value so we can clear it later if needed, but use the file-upload one
+                // document.getElementById('image-upload').value = ''; 
+                // document.getElementById('file-upload').value = ''; 
+
+                promptInput.focus();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Custom alert box replacement
+        function alertNotImage(filename) {
+            // For simplicity, we use a basic console log for unsupported file types.
+            // In a production app, you would show a custom, non-blocking UI message.
+            console.warn(`File Upload: Non-image file '${filename}' detected. Only image files are supported for direct multimodal analysis.`);
+            // You can add a subtle temporary message in the input area here if desired.
+            promptInput.placeholder = `দুঃখিত, '${filename}' ফাইলটি বর্তমানে বিশ্লেষণ করা সম্ভব নয়।`;
+            setTimeout(() => {
+                promptInput.placeholder = "এখানে আপনার প্রশ্ন বা বার্তা লিখুন...";
+            }, 3000);
+        }
+
+
+        // Function to clear the uploaded image
+        window.clearImage = function() {
+            base64Image = null;
+            imageMimeType = null;
+            document.getElementById('image-upload').value = ''; // Reset file input
+            document.getElementById('file-upload').value = ''; // Reset file input
+            document.getElementById('image-preview-container').classList.add('hidden');
+        };
+
+        // FIX: Export newChat to the global window object to resolve ReferenceError
+        window.newChat = function() {
+            chatHistory = [];
+            clearImage(); // Also clear any pending image
+            chatContainer.innerHTML = `
+                <div class="flex flex-col items-start max-w-3xl mx-auto">
+                    <div class="p-4 rounded-xl bg-gemini-light-dark shadow-lg">
+                        <h2 class="text-xl font-semibold mb-2 text-white">Nexa AI - নতুন কথোপকথন শুরু</h2>
+                        <p class="text-sm text-gemini-text">আপনি এখন একটি নতুন চ্যাট সেশন শুরু করেছেন। আপনার প্রথম প্রশ্নটি জিজ্ঞাসা করুন। আপনি ছবি বা কোড সংক্রান্ত প্রশ্নও করতে পারেন!</p>
+                    </div>
+                </div>
+            `;
+            // Update history list in sidebar (simple display)
+            const historyList = document.getElementById('history-list');
+            // Remove previous entries for a cleaner look when starting new chat (optional)
+            historyList.innerHTML = `<li class="p-2 rounded-lg bg-gray-700 text-white cursor-pointer hover:bg-gray-600">স্বাগতম বার্তা</li>`;
+
+            // Re-enable input and focus
+            promptInput.disabled = false;
+            sendButton.disabled = false;
+            promptInput.focus();
+            
+            // Close sidebar after starting a new chat
+            if (sidebar.classList.contains('open')) {
+                toggleSidebar();
+            }
+        }
+        
+        // Function to sanitize and append user message to the UI
+        function appendUserMessage(text, imageSrc = null, doScroll = true) {
+            const messageElement = document.createElement('div');
+            messageElement.className = 'flex justify-end max-w-3xl mx-auto';
+            
+            let imageHtml = '';
+            if (imageSrc) {
+                imageHtml = `<img src="${imageSrc}" class="w-full max-h-48 object-contain rounded-lg mb-2 border border-gray-600" alt="User Uploaded Image">`;
+            }
+
+            messageElement.innerHTML = `
+                <div class="bg-gemini-blue text-white p-4 rounded-t-xl rounded-bl-xl shadow-lg max-w-[90%] md:max-w-xl">
+                    ${imageHtml}
+                    ${text}
+                </div>
+            `;
+            chatContainer.appendChild(messageElement);
+            if (doScroll) {
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+        }
+
+        // Function to append AI response (using Markdown rendering)
+        function appendAIMessage(markdownText, doScroll = true) {
+            const htmlContent = marked.parse(markdownText);
+            const messageElement = document.createElement('div');
+            messageElement.className = 'flex justify-start max-w-3xl mx-auto';
+            
+            // Create a temporary element to hold the raw text without markdown for TTS
+            const ttsText = markdownText.replace(/```.*?```/gs, '').replace(/([_*#`])|(\[[^\]]*\]\([^)]*\))/g, '', '').trim().replace(/\n/g, ' '); 
+            
+            // Escape single quotes for use in onclick attribute
+            const safeTtsText = ttsText.replace(/'/g, "\\'"); 
+
+            messageElement.innerHTML = `
+                <div class="bg-gemini-light-dark text-gemini-text p-4 rounded-t-xl rounded-br-xl shadow-xl max-w-[90%] md:max-w-xl relative">
+                    <div class="markdown-body">
+                        ${htmlContent}
+                    </div>
+                    ${ttsText ? `
+                    <!-- Text-to-Speech Button (uses gemini-2.5-flash-preview-tts) -->
+                    <button onclick="playAudio('${safeTtsText}', this)" class="tts-button absolute -bottom-2 -right-2 p-2 bg-gray-600 text-white rounded-full hover:bg-gray-500 transition duration-200 shadow-md flex items-center justify-center" title="উত্তরটি শুনুন">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+                    </button>
+                    ` : ''}
+                </div>
+            `;
+            chatContainer.appendChild(messageElement);
+            if (doScroll) {
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+        }
+
+        // Function to handle Enter key press
+        window.handleKeyPress = function(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        };
+
+        // Main function to send message and call API
+        window.sendMessage = async function() {
+            const prompt = promptInput.value.trim();
+            if (!prompt && !base64Image) return;
+            
+            if (API_KEY === "") {
+                appendAIMessage("---  \n**API কী অনুপস্থিত!** \nঅনুগ্রহ করে কোডের মধ্যে `API_KEY` ভেরিয়েবলে আপনার **জেমিনি API কী** প্রবেশ করান।  \n---");
+                promptInput.value = '';
+                return;
+            }
+
+            // 1. Display User Message (including image if present)
+            const imageDisplaySrc = base64Image ? `data:${imageMimeType};base64,${base64Image}` : null;
+            appendUserMessage(prompt || "ছবি বিশ্লেষণ/সম্পাদনা করার অনুরোধ", imageDisplaySrc);
+            
+            // 2. Clear input and disable UI
+            promptInput.value = '';
+            promptInput.style.height = 'auto'; // Reset textarea height
+            sendButton.disabled = true;
+            promptInput.disabled = true;
+            loadingIndicator.classList.remove('hidden');
+
+            // 3. Update chat history for context (Multimodal support)
+            const parts = [];
+
+            if (base64Image && imageMimeType) {
+                // Prepend image data to the parts array for multimodal context
+                parts.push({
+                    inlineData: {
+                        mimeType: imageMimeType,
+                        data: base64Image
+                    }
+                });
+            }
+            // Add text part (even if empty, for image-only requests)
+            parts.push({ text: prompt || "ছবি বিশ্লেষণ/সম্পাদনা করো" }); 
+            
+            // Add the current user query (potentially with image) to history
+            chatHistory.push({ role: "user", parts: parts });
+
+            // Clear the image state after using it in the prompt
+            clearImage(); 
+
+            // 4. Prepare API payload
+            const payload = {
+                contents: chatHistory,
+                // Enabling Google Search for grounding, similar to how Gemini works
+                tools: [{ "google_search": {} }], 
+            };
+
+            // 5. Call Gemini API with Exponential Backoff for robustness
+            const MAX_RETRIES = 5;
+            let response = null;
+            let lastError = null;
+
+            for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+                try {
+                    const fetchResponse = await fetch(`${CHAT_API_URL}?key=${API_KEY}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!fetchResponse.ok) {
+                        const errorBody = await fetchResponse.json();
+                        throw new Error(`API Error: ${fetchResponse.status} - ${errorBody.error?.message || 'Unknown error'}`);
+                    }
+                    
+                    response = await fetchResponse.json();
+                    break; // Success
+                } catch (error) {
+                    lastError = error;
+                    console.warn(`Attempt ${attempt + 1} failed. Retrying in ${Math.pow(2, attempt)}s...`, error);
+                    if (attempt < MAX_RETRIES - 1) {
+                        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+                    }
+                }
+            }
+
+            // 6. Process response and update UI
+            loadingIndicator.classList.add('hidden');
+            sendButton.disabled = false;
+            promptInput.disabled = false;
+            promptInput.focus();
+
+            if (response) {
+                const candidate = response.candidates?.[0];
+                const aiText = candidate?.content?.parts?.[0]?.text;
+
+                if (aiText) {
+                    // 7. Append AI Message and update history
+                    appendAIMessage(aiText);
+                    chatHistory.push({ role: "model", parts: [{ text: aiText }] });
+                    
+                    // --- IMPORTANT: Save history automatically after a successful response ---
+                    saveChatHistory();
+
+                } else {
+                    // Handle cases where the model response is blocked or empty
+                    const blockReason = candidate?.finishReason || "Unknown";
+                    const errorMessage = `দুঃখিত, আমি এই অনুরোধের উত্তর দিতে পারিনি। সম্ভবত: **${blockReason}** কারণে উত্তরটি ব্লক করা হয়েছে।`;
+                    appendAIMessage(errorMessage);
+                }
+            } else {
+                // Handle total failure after all retries
+                appendAIMessage(`দুঃখিত, API-এর সাথে সংযোগ স্থাপন করা যায়নি। (Error: ${lastError?.message || 'Unknown network error'})`);
+            }
+        }
+
+        // --- UI Utility: Auto-resize textarea on input ---
+        promptInput.addEventListener('input', () => {
+            promptInput.style.height = 'auto';
+            promptInput.style.height = (promptInput.scrollHeight) + 'px';
+        });
+        
+    </script>
+</body>
+</html>
